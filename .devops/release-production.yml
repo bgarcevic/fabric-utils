@@ -1,0 +1,109 @@
+parameters:
+  - name: deployments
+    type: object
+    default:
+      - workspace_name: 'data-and-analytics'
+        repository_directory: './fabric-workspaces/data-and-analytics/'
+      - workspace_name: 'report_workspace2'
+        repository_directory: './fabric-workspaces/report_workspace2/'
+      - workspace_name: 'report_workspace3'
+        repository_directory: './fabric-workspaces/report_workspace3/'
+trigger:
+  tags:
+    include:
+    - 'v*'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: Production
+    displayName: 'Deploy to Production'
+    jobs:
+      - job: production_deploy_duos
+        displayName: 'Production Deployment Job - DUOS Analytics Data'
+        steps:
+          - checkout: self
+            displayName: 'Checkout repository'
+
+          - script: |
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              echo "##vso[task.prependpath]$HOME/.cargo/bin"
+            displayName: 'Install uv'
+
+          - script: |
+              echo "============================================"
+              echo "PRODUCTION DEPLOYMENT"
+              echo "Tag: $(Build.SourceBranchName)"
+              echo "Environment: PROD"
+              echo "============================================"
+
+              TAG_NAME="$(Build.SourceBranchName)"
+
+              echo "##vso[task.setvariable variable=GIT_TAG]$TAG_NAME"
+              echo "Git reference: $TAG_NAME"
+            displayName: 'Set Git Reference to Tag'
+
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: 'BI-fabric-deployment'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                uv run ./.devops/deploy-fabric-resources.py --workspace_name 'DUOS Analytics Data' --environment PROD --repository_directory './fabric-workspaces/duos-analytics-data/'
+            displayName: 'Deploy to Production Environment - DUOS Analytics Data'
+            env:
+              $ENV:PROD_GIT_TAG: $(GIT_TAG)
+
+          - script: |
+              echo "============================================"
+              echo "✅ PRODUCTION DEPLOYMENT COMPLETE - DUOS Analytics Data"
+              echo "Environment: PROD"
+              echo "Git Reference: $(GIT_TAG)"
+              echo "============================================"
+            displayName: 'Deployment Summary - DUOS Analytics Data'
+
+      - ${{ each deployment in parameters.deployments }}:
+          - job: production_deploy_${{ replace(deployment.workspace_name, ' ', '_') }}
+            dependsOn: production_deploy_duos
+            displayName: 'Production Deployment Job - ${{ deployment.workspace_name }}'
+            steps:
+              - checkout: self
+                displayName: 'Checkout repository'
+
+              - script: |
+                  curl -LsSf https://astral.sh/uv/install.sh | sh
+                  echo "##vso[task.prependpath]$HOME/.cargo/bin"
+                displayName: 'Install uv'
+
+              - script: |
+                  echo "============================================"
+                  echo "PRODUCTION DEPLOYMENT"
+                  echo "Tag: $(Build.SourceBranchName)"
+                  echo "Environment: PROD"
+                  echo "============================================"
+
+                  TAG_NAME="$(Build.SourceBranchName)"
+
+                  echo "##vso[task.setvariable variable=GIT_TAG]$TAG_NAME"
+                  echo "Git reference: $TAG_NAME"
+                displayName: 'Set Git Reference to Tag'
+
+              - task: AzureCLI@2
+                inputs:
+                  azureSubscription: 'BI-fabric-deployment'
+                  scriptType: 'bash'
+                  scriptLocation: 'inlineScript'
+                  inlineScript: |
+                    uv run ./.devops/deploy-fabric-resources.py --workspace_name '${{ deployment.workspace_name }}' --environment PROD --repository_directory '${{ deployment.repository_directory }}'
+                displayName: 'Deploy to Production Environment - ${{ deployment.workspace_name }}'
+                env:
+                  $ENV:PROD_GIT_TAG: $(GIT_TAG)
+
+              - script: |
+                  echo "============================================"
+                  echo "✅ PRODUCTION DEPLOYMENT COMPLETE - ${{ deployment.workspace_name }}"
+                  echo "Environment: PROD"
+                  echo "Git Reference: $(GIT_TAG)"
+                  echo "============================================"
+                displayName: 'Deployment Summary - ${{ deployment.workspace_name }}'

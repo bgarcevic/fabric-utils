@@ -1,0 +1,120 @@
+trigger: none
+
+lockBehavior: sequential # Ensure that only one instance of the pipeline runs at a time
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+
+stages:
+  - stage: dbt_ci
+    displayName: "Validate and test dbt Project"
+    jobs:
+      - job: dbt_validation
+        displayName: "Run dbt CI Validation"
+        steps:
+        # Checkout the repository first to get the necessary files for comparison
+        - checkout: self
+          fetchDepth: 0 
+          persistCredentials: true
+
+        - script: |
+            # Get full paths and store as space-separated list for changed SQL files
+            changed_sql_files=$(git diff --name-only --diff-filter=AM origin/$(System.PullRequest.targetBranchName) |
+              grep '^dbt/models/.*\.sql$' |
+              sed 's|^dbt/||' |
+              tr '\n' ' ')
+            echo "##vso[task.setvariable variable=changed_sql_files]$changed_sql_files"
+            echo "Changed SQL files:"
+            for file in $changed_sql_files; do
+              echo " - $file"
+            done
+          workingDirectory: dbt
+          displayName: 'Get changed SQL files'
+
+        - script: |
+            echo "Checking if uv is installed..."
+            if ! command -v uv &> /dev/null
+            then
+              echo "uv not found. Installing uv..."
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              echo "Adding uv to PATH..."
+              export PATH="$HOME/.local/bin:$PATH"
+            else
+              echo "uv is already installed. Skipping installation, checking updates"
+              uv self update
+            fi
+            echo "##vso[task.prependpath]$HOME/.local/bin"
+          displayName: "Check and install uv"
+
+        - script: |
+            uv sync
+            source .venv/bin/activate
+            echo "##vso[task.setvariable variable=VIRTUAL_ENV]$(pwd)/.venv"
+            echo "##vso[task.prependpath]$(pwd)/.venv/bin"
+          displayName: 'Install dbt and dependencies with uv'
+          workingDirectory: dbt
+
+        - script: |
+            set -e
+
+            # Optional: see what's already installed
+            echo "Existing ODBC drivers (if any):"
+            odbcinst -q -d || true
+
+            # Install prerequisites
+            sudo apt-get update
+            sudo apt-get install -y curl gnupg2 apt-transport-https
+
+            # Add Microsoft package repo (for msodbcsql / mssql-tools)
+            curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+            curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list \
+              | sudo tee /etc/apt/sources.list.d/msprod.list
+
+            sudo apt-get update
+
+            # Install unixODBC and SQL Server ODBC driver/tools (accept EULA non-interactively)
+            sudo ACCEPT_EULA=Y apt-get install -y \
+              unixodbc \
+              unixodbc-dev \
+              msodbcsql18 \
+              mssql-tools18
+
+            # (optional) add sqlcmd to PATH for this script
+            echo 'export PATH="$PATH:/opt/mssql-tools18/bin"' >> ~/.bashrc
+            source ~/.bashrc
+
+            # Quick check
+            echo "Installed ODBC drivers:"
+            odbcinst -q -d
+          displayName: 'Install ODBC + SQL Server driver'
+
+        - script: |
+            pr=$(System.PullRequest.PullRequestNumber)
+            # Fallback in case this isn't a PR build
+            schema="dbt_ci_pr_${pr:-$(Build.BuildId)}"
+
+            # Lowercase and replace non‑alphanum with underscore
+            schema=$(echo "$schema" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_]/_/g')
+
+            echo "Using schema: $schema"
+            echo "##vso[task.setvariable variable=DBT_SCHEMA]$schema"
+          displayName: 'Set dbt schema for this PR'
+
+        - script: |
+            dbt debug
+            dbt deps
+            dbt parse
+          displayName: 'Ensure dbt project connection and syntax validity'
+          workingDirectory: dbt
+          env:
+            DBT_SCHEMA: $(DBT_SCHEMA)
+            DBT_CLIENT_SECRET: $(dbt_client_secret)
+
+        - script: |
+            sqlfluff lint $(changed_sql_files)
+          displayName: 'Lint SQL Files with SQLFluff'
+          workingDirectory: dbt
+          env:
+            DBT_SCHEMA: $(DBT_SCHEMA)
+            DBT_CLIENT_SECRET: $(dbt_client_secret)
