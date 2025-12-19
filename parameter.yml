@@ -1,0 +1,44 @@
+find_replace:
+    ####################################################################################################
+    ########## Notebooks ###############################################################################
+    ####################################################################################################
+    # lakehouse GUID matching group 1 of regex pattern to be replaced
+    - find_value: \#\s*META\s+"default_lakehouse":\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+      replace_value:
+          DEV: "$workspace.Staging DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+          STG: "$workspace.Staging DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+          PROD: "$workspace.DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+      is_regex: "true"
+      item_type: "Notebook" # filter on notebook files
+
+    - find_value: \#\s*META\s+"default_lakehouse_workspace_id":\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+      replace_value:
+          DEV: "$workspace.Staging DUOS Analytics Data"
+          STG: "$workspace.Staging DUOS Analytics Data"
+          PROD: "$workspace.DUOS Analytics Data"
+      is_regex: "true"
+      item_type: "Notebook"
+
+    # known lakehouses id matching group 1 of regex pattern to be replaced
+    - find_value: \#\s*META\s+"id":\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+      replace_value:
+          DEV: "$workspace.Staging DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+          STG: "$workspace.Staging DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+          PROD: "$workspace.DUOS Analytics Data.$items.Lakehouse.duos_lakehouse.$id"
+      is_regex: "true"
+      item_type: "Notebook"
+
+    - find_value: "is_prod = False"
+      replace_value:
+          DEV: "is_prod = False"
+          STG: "is_prod = False"
+          PROD: "is_prod = True"
+      item_type: "Notebook"
+
+    - find_value: 'git_tag = "([^"]*)"'
+      replace_value:
+          DEV: "main"
+          STG: '$ENV:STG_GIT_TAG'
+          PROD: '$ENV:PROD_GIT_TAG'
+      item_type: "Notebook"
+      is_regex: "true"
